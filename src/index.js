@@ -65,19 +65,40 @@ async function runTradingCycle() {
 
         // Step 7: Trade Execution
         if (marketStatus.isOpen && decision.action !== 'hold') {
-            const trade = await executeTrade({
+            // Make sure we have all required parameters
+            const tradeParams = {
                 symbol: STOCK_SYMBOL,
                 action: decision.action,
                 quantity: riskCheck.quantity,
-                price: decision.price,
-                stopLoss: decision.stopLoss
-            });
+                stopLoss: decision.stopLoss,
+                // Add any missing required parameters
+                price: technicals.currentPrice // Use current price from technical analysis
+            };
 
-            // Step 8: Notification
-            await telegram.sendNotification({
-                type: 'trade',
-                message: `Trade executed: ${trade.action} ${trade.quantity} ${trade.symbol} @ ${trade.price}`
-            });
+            // Log trade parameters for debugging
+            console.log('Executing trade with params:', tradeParams);
+
+            // Only execute if we have valid parameters
+            if (tradeParams.symbol && tradeParams.action && tradeParams.quantity > 0) {
+                const trade = await executeTrade(tradeParams);
+
+                if (trade.success) {
+                    await sendNotification({
+                        type: 'trade',
+                        message: `Trade executed: ${trade.action.toUpperCase()} ${trade.quantity} ${trade.symbol} @ $${trade.price.toFixed(2)}`
+                    });
+                } else {
+                    await sendNotification({
+                        type: 'error',
+                        message: `Trade execution failed: ${trade.error}`
+                    });
+                }
+            } else {
+                await sendNotification({
+                    type: 'warning',
+                    message: `Trade skipped: Invalid parameters - Symbol: ${tradeParams.symbol}, Action: ${tradeParams.action}, Quantity: ${tradeParams.quantity}`
+                });
+            }
         } else {
             await telegram.sendNotification({
                 type: 'info',

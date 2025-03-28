@@ -18,7 +18,6 @@ async function executeTrade(params) {
             symbol,
             action,
             quantity,
-            price,
             stopLoss
         } = params;
 
@@ -38,7 +37,7 @@ async function executeTrade(params) {
 
         const order = await alpaca.createOrder(orderParams);
 
-        // If order is filled, place stop loss
+        // If order is filled and we have a stop loss, place the stop loss order
         if (order.status === 'filled' && stopLoss) {
             const stopLossParams = {
                 symbol,
@@ -55,10 +54,10 @@ async function executeTrade(params) {
                 success: true,
                 mainOrder: order,
                 stopLossOrder,
-                action,
-                quantity,
-                symbol,
-                price: order.filled_avg_price,
+                action: order.side,
+                quantity: parseInt(order.qty),
+                symbol: order.symbol,
+                price: parseFloat(order.filled_avg_price || order.limit_price),
                 timestamp: new Date()
             };
         }
@@ -66,10 +65,10 @@ async function executeTrade(params) {
         return {
             success: true,
             mainOrder: order,
-            action,
-            quantity,
-            symbol,
-            price: order.filled_avg_price,
+            action: order.side,
+            quantity: parseInt(order.qty),
+            symbol: order.symbol,
+            price: parseFloat(order.filled_avg_price || order.limit_price),
             timestamp: new Date()
         };
 

@@ -15,7 +15,13 @@ function formatMessage(data) {
 
     switch (data.type) {
         case 'trade':
-            message = `🤖 Trade Alert!\n\n${data.message}\n\nTime: ${timestamp}`;
+            if (data.message.includes('Trade executed:')) {
+                // Parse the trade data
+                const trade = data.message.split('Trade executed: ')[1];
+                message = `🤖 Trade Alert!\n\n${trade}\n\nTime: ${timestamp}`;
+            } else {
+                message = `🤖 Trade Alert!\n\n${data.message}\n\nTime: ${timestamp}`;
+            }
             break;
         case 'error':
             message = `⚠️ Error Alert!\n\n${data.message}\n\nTime: ${timestamp}`;
@@ -34,8 +40,8 @@ function formatMessage(data) {
                     message = `ℹ️ Trading Decision\n\n` +
                         `Action: ${decision.action.toUpperCase()}\n` +
                         `Confidence: ${decision.confidence}\n` +
-                        (decision.priceTarget ? `Target: $${decision.priceTarget}\n` : '') +
-                        (decision.stopLoss ? `Stop Loss: $${decision.stopLoss}\n` : '') +
+                        (decision.priceTarget ? `Target: $${decision.priceTarget.toFixed(2)}\n` : '') +
+                        (decision.stopLoss ? `Stop Loss: $${decision.stopLoss.toFixed(2)}\n` : '') +
                         `\nReasoning Summary: ${decision.reasoning.slice(0, 200)}...\n\n` +
                         `Time: ${timestamp}`;
                 } catch (e) {

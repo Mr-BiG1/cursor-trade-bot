@@ -9,19 +9,41 @@ const alpaca = new Alpaca({
 
 const RISK_PERCENTAGE = parseFloat(process.env.RISK_PERCENTAGE) || 1; // Default 1% risk per trade
 const MIN_RISK_REWARD_RATIO = 2; // Minimum 2:1 reward-to-risk ratio
+const MIN_POSITION_SIZE = 1; // Minimum number of shares to trade
 
 /**
  * Calculate position size based on risk parameters
  * @param {Object} params Trade parameters
+ * @param {Object} account Account information
  * @returns {Promise<number>} Position size
  */
-async function calculatePositionSize(params) {
-    const account = await alpaca.getAccount();
+async function calculatePositionSize(params, account) {
     const portfolioValue = parseFloat(account.portfolio_value);
     const maxRiskAmount = portfolioValue * (RISK_PERCENTAGE / 100);
+    const buyingPower = parseFloat(account.buying_power);
     
     const riskPerShare = Math.abs(params.entryPrice - params.stopLoss);
-    const shares = Math.floor(maxRiskAmount / riskPerShare);
+    let shares = Math.floor(maxRiskAmount / riskPerShare);
+    
+    // Calculate maximum shares based on buying power
+    const maxSharesByBuyingPower = Math.floor(buyingPower / params.entryPrice);
+    
+    // Take the smaller of the two values
+    shares = Math.min(shares, maxSharesByBuyingPower);
+    
+    // Ensure minimum position size
+    if (shares < MIN_POSITION_SIZE) {
+        // Try reducing risk percentage until we can afford at least minimum shares
+        const minRiskAmount = MIN_POSITION_SIZE * riskPerShare;
+        const actualRiskPercentage = (minRiskAmount / portfolioValue) * 100;
+        
+        if (minRiskAmount <= maxRiskAmount && MIN_POSITION_SIZE * params.entryPrice <= buyingPower) {
+            shares = MIN_POSITION_SIZE;
+            console.log(`Adjusted risk percentage to ${actualRiskPercentage.toFixed(2)}% for minimum position size`);
+        } else {
+            return 0; // Can't afford even minimum position
+        }
+    }
     
     return shares;
 }
@@ -74,42 +96,45 @@ async function validateRisk(decision) {
             };
         }
 
-        // Get current price
-        const quote = await alpaca.getLatestQuote(decision.symbol);
+        // Get current price and account info
+        const [quote, account] = await Promise.all([
+            alpaca.getLatestQuote(decision.symbol),
+            alpaca.getAccount()
+        ]);
+        
         const currentPrice = parseFloat(quote.askprice);
 
         const tradeParams = {
             entryPrice: currentPrice,
-            stopLoss: decision.stopLoss,
-            priceTarget: decision.priceTarget
+            stopLoss: decision.stopLoss || currentPrice * 0.98, // Default 2% stop loss if none provided
+            priceTarget: decision.priceTarget || currentPrice * 1.04 // Default 4% target if none provided
         };
 
         // Calculate position size
-        const quantity = await calculatePositionSize(tradeParams);
+        const quantity = await calculatePositionSize(tradeParams, account);
         
-        // Calculate risk-reward ratio
-        const riskRewardRatio = calculateRiskRewardRatio(tradeParams);
-        
-        // Check margin requirements
-        const hasMargin = await checkMarginRequirements({
-            ...tradeParams,
-            quantity
-        });
+        if (quantity === 0) {
+            return {
+                isValid: false,
+                reason: 'Insufficient funds for minimum position size',
+                details: {
+                    minimumShares: MIN_POSITION_SIZE,
+                    currentPrice,
+                    requiredFunds: MIN_POSITION_SIZE * currentPrice
+                }
+            };
+        }
 
-        // Validate the trade
+        // Calculate risk-reward ratio
+        const potentialReward = Math.abs(tradeParams.priceTarget - tradeParams.entryPrice);
+        const potentialRisk = Math.abs(tradeParams.entryPrice - tradeParams.stopLoss);
+        const riskRewardRatio = potentialReward / potentialRisk;
+
         if (riskRewardRatio < MIN_RISK_REWARD_RATIO) {
             return {
                 isValid: false,
                 reason: `Risk-reward ratio ${riskRewardRatio.toFixed(2)} below minimum ${MIN_RISK_REWARD_RATIO}`,
                 details: { riskRewardRatio }
-            };
-        }
-
-        if (!hasMargin) {
-            return {
-                isValid: false,
-                reason: 'Insufficient buying power',
-                details: { quantity, estimatedCost: quantity * currentPrice }
             };
         }
 
@@ -120,8 +145,10 @@ async function validateRisk(decision) {
             maxRisk: RISK_PERCENTAGE,
             details: {
                 entryPrice: currentPrice,
-                stopLoss: decision.stopLoss,
-                priceTarget: decision.priceTarget
+                stopLoss: tradeParams.stopLoss,
+                priceTarget: tradeParams.priceTarget,
+                estimatedCost: quantity * currentPrice,
+                availableFunds: parseFloat(account.buying_power)
             }
         };
 
