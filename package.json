@@ -1,0 +1,25 @@
+{
+  "name": "dsg-tradebot",
+  "version": "1.0.0",
+  "description": "AI-Powered Trading Assistant",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^2.16.1",
+    "axios": "^1.8.2",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.20.1",
+    "technicalindicators": "^3.1.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  }
+} 
