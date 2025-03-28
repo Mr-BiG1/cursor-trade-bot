@@ -63,6 +63,10 @@ async function checkMarginRequirements(params) {
  */
 async function validateRisk(decision) {
     try {
+        if (!decision.symbol) {
+            throw new Error('Stock symbol is required for risk validation');
+        }
+
         if (decision.action === 'hold') {
             return {
                 isValid: true,

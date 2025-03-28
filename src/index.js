@@ -49,6 +49,9 @@ async function runTradingCycle() {
             marketStatus
         });
 
+        // Add the symbol to the decision object before risk validation
+        decision.symbol = STOCK_SYMBOL;
+
         // Step 6: Risk Management
         const riskCheck = await validateRisk(decision);
         
