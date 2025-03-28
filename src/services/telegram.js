@@ -2,6 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const MAX_MESSAGE_LENGTH = 4096; // Telegram's maximum message length
 
 /**
  * Format message based on notification type
@@ -26,10 +27,31 @@ function formatMessage(data) {
             message = `🔧 System Message\n\n${data.message}\n\nTime: ${timestamp}`;
             break;
         case 'info':
-            message = `ℹ️ Info\n\n${data.message}\n\nTime: ${timestamp}`;
+            // For info messages containing trading decisions, format them concisely
+            if (data.message.includes('Decision:')) {
+                try {
+                    const decision = JSON.parse(data.message.split('Decision: ')[1]);
+                    message = `ℹ️ Trading Decision\n\n` +
+                        `Action: ${decision.action.toUpperCase()}\n` +
+                        `Confidence: ${decision.confidence}\n` +
+                        (decision.priceTarget ? `Target: $${decision.priceTarget}\n` : '') +
+                        (decision.stopLoss ? `Stop Loss: $${decision.stopLoss}\n` : '') +
+                        `\nReasoning Summary: ${decision.reasoning.slice(0, 200)}...\n\n` +
+                        `Time: ${timestamp}`;
+                } catch (e) {
+                    message = `ℹ️ Info\n\n${data.message}\n\nTime: ${timestamp}`;
+                }
+            } else {
+                message = `ℹ️ Info\n\n${data.message}\n\nTime: ${timestamp}`;
+            }
             break;
         default:
             message = `${data.message}\n\nTime: ${timestamp}`;
+    }
+
+    // Ensure message doesn't exceed Telegram's limit
+    if (message.length > MAX_MESSAGE_LENGTH) {
+        return message.slice(0, MAX_MESSAGE_LENGTH - 3) + '...';
     }
 
     return message;
@@ -48,7 +70,6 @@ async function sendNotification(data) {
 
         const message = formatMessage(data);
         
-        // Add markdown formatting
         const options = {
             parse_mode: 'Markdown',
             disable_web_page_preview: true
@@ -64,8 +85,6 @@ async function sendNotification(data) {
     } catch (error) {
         console.error('Error sending Telegram notification:', error);
         
-        // Don't throw error to prevent breaking the main flow
-        // Just log it and return error status
         return {
             success: false,
             error: error.message,
