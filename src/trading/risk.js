@@ -18,34 +18,52 @@ const MIN_POSITION_SIZE = 1; // Minimum number of shares to trade
  * @returns {Promise<number>} Position size
  */
 async function calculatePositionSize(params, account) {
-    const portfolioValue = parseFloat(account.portfolio_value);
-    const maxRiskAmount = portfolioValue * (RISK_PERCENTAGE / 100);
-    const buyingPower = parseFloat(account.buying_power);
-    
-    const riskPerShare = Math.abs(params.entryPrice - params.stopLoss);
-    let shares = Math.floor(maxRiskAmount / riskPerShare);
-    
-    // Calculate maximum shares based on buying power
-    const maxSharesByBuyingPower = Math.floor(buyingPower / params.entryPrice);
-    
-    // Take the smaller of the two values
-    shares = Math.min(shares, maxSharesByBuyingPower);
-    
-    // Ensure minimum position size
-    if (shares < MIN_POSITION_SIZE) {
-        // Try reducing risk percentage until we can afford at least minimum shares
-        const minRiskAmount = MIN_POSITION_SIZE * riskPerShare;
-        const actualRiskPercentage = (minRiskAmount / portfolioValue) * 100;
+    try {
+        const portfolioValue = parseFloat(account.portfolio_value);
+        const buyingPower = parseFloat(account.buying_power);
         
-        if (minRiskAmount <= maxRiskAmount && MIN_POSITION_SIZE * params.entryPrice <= buyingPower) {
-            shares = MIN_POSITION_SIZE;
-            console.log(`Adjusted risk percentage to ${actualRiskPercentage.toFixed(2)}% for minimum position size`);
-        } else {
-            return 0; // Can't afford even minimum position
+        // Add logging to debug values
+        console.log('Portfolio Value:', portfolioValue);
+        console.log('Buying Power:', buyingPower);
+        console.log('Entry Price:', params.entryPrice);
+        console.log('Stop Loss:', params.stopLoss);
+
+        // Ensure we have valid numbers
+        if (!params.entryPrice || !params.stopLoss) {
+            console.error('Missing entry price or stop loss for position sizing');
+            return 0;
         }
+
+        const maxRiskAmount = portfolioValue * (RISK_PERCENTAGE / 100);
+        const riskPerShare = Math.abs(params.entryPrice - params.stopLoss);
+        
+        // Ensure we're not dividing by zero
+        if (riskPerShare === 0) {
+            console.error('Risk per share cannot be zero');
+            return 0;
+        }
+
+        let shares = Math.floor(maxRiskAmount / riskPerShare);
+        
+        // Calculate maximum shares based on buying power
+        const maxSharesByBuyingPower = Math.floor(buyingPower / params.entryPrice);
+        
+        // Take the smaller of the two values
+        shares = Math.min(shares, maxSharesByBuyingPower);
+        
+        // Ensure minimum position size
+        if (shares < MIN_POSITION_SIZE) {
+            if (MIN_POSITION_SIZE * params.entryPrice <= buyingPower) {
+                return MIN_POSITION_SIZE;
+            }
+            return 0;
+        }
+        
+        return shares;
+    } catch (error) {
+        console.error('Error calculating position size:', error);
+        return 0;
     }
-    
-    return shares;
 }
 
 /**
@@ -104,31 +122,34 @@ async function validateRisk(decision) {
         
         const currentPrice = parseFloat(quote.askprice);
 
+        // Ensure we have a valid stop loss
+        const stopLoss = decision.stopLoss || currentPrice * 0.98; // Default 2% stop loss
+        const priceTarget = decision.priceTarget || currentPrice * 1.04; // Default 4% target
+
         const tradeParams = {
             entryPrice: currentPrice,
-            stopLoss: decision.stopLoss || currentPrice * 0.98, // Default 2% stop loss if none provided
-            priceTarget: decision.priceTarget || currentPrice * 1.04 // Default 4% target if none provided
+            stopLoss: stopLoss,
+            priceTarget: priceTarget
         };
 
         // Calculate position size
         const quantity = await calculatePositionSize(tradeParams, account);
         
-        if (quantity === 0) {
+        if (!quantity || quantity === 0) {
             return {
                 isValid: false,
-                reason: 'Insufficient funds for minimum position size',
+                reason: 'Could not calculate valid position size',
                 details: {
-                    minimumShares: MIN_POSITION_SIZE,
                     currentPrice,
-                    requiredFunds: MIN_POSITION_SIZE * currentPrice
+                    stopLoss,
+                    priceTarget,
+                    buyingPower: parseFloat(account.buying_power)
                 }
             };
         }
 
         // Calculate risk-reward ratio
-        const potentialReward = Math.abs(tradeParams.priceTarget - tradeParams.entryPrice);
-        const potentialRisk = Math.abs(tradeParams.entryPrice - tradeParams.stopLoss);
-        const riskRewardRatio = potentialReward / potentialRisk;
+        const riskRewardRatio = Math.abs(priceTarget - currentPrice) / Math.abs(currentPrice - stopLoss);
 
         if (riskRewardRatio < MIN_RISK_REWARD_RATIO) {
             return {
@@ -145,8 +166,8 @@ async function validateRisk(decision) {
             maxRisk: RISK_PERCENTAGE,
             details: {
                 entryPrice: currentPrice,
-                stopLoss: tradeParams.stopLoss,
-                priceTarget: tradeParams.priceTarget,
+                stopLoss: stopLoss,
+                priceTarget: priceTarget,
                 estimatedCost: quantity * currentPrice,
                 availableFunds: parseFloat(account.buying_power)
             }
