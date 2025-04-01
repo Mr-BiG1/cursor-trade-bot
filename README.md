@@ -1,1 +1,1 @@
- 
+ cursor-trade-bot
